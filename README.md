@@ -497,15 +497,50 @@ for model in ("laya:en", "kev"):
     print(model, a["verdict"]["choice"], a["verdict"]["probabilities"], "phishing:", a["is_phishing"]["noul"])
 ```
 
-### TypeSafe SDK
+### Python SDK (`typesafe-sdk`)
 
-Ollaya is wire-compatible with TypeSafe's hosted System One API, so the official TypeSafe SDK works
-unchanged when pointed at your local server:
+Ollaya has no Python package of its own, but it's wire-compatible with TypeSafe's hosted System One
+API, so TypeSafe's official SDK works unchanged against your local server. It gives you typed
+responses, retries, timeouts, an async client and proper exceptions. Tested with `typesafe-sdk` 0.7.2:
 
 ```bash
-export TYPESAFE_BASE_URL=http://localhost:11435        # macOS / Linux
-$env:TYPESAFE_BASE_URL = 'http://localhost:11435'      # Windows PowerShell
+pip install typesafe-sdk
 ```
+
+```python
+from typesafe_sdk import TypeSafeClient
+
+# The api_key isn't checked by a local Ollaya unless you set OLLAYA_API_KEY; then pass that key here.
+with TypeSafeClient(base_url="http://localhost:11435", api_key="local", model="laya:en") as client:
+    r = client.system_one(
+        state="Hi dear, your wallet is suspended, send your seed phrase to verify.",
+        questions={
+            "verdict": {"type": "choice", "instructions": "Is this Telegram message spam?",
+                        "criteria": {"spam": "Scam, phishing or promo", "legit": "Normal message"}},
+            "is_phishing": {"type": "noul", "instructions": "The message tries to steal credentials or crypto."},
+        },
+    )
+    print(r.answers["verdict"].choice, r.answers["verdict"].probabilities)  # spam {'spam': 0.695, 'legit': 0.305}
+    print(r.answers["is_phishing"].noul)                                    # 0.6672
+
+    # Override the model per call, e.g. escalate unsure cases to Kev:
+    r2 = client.system_one(state="...", questions={...}, model="kev")
+```
+
+Instead of constructor arguments you can use environment variables:
+
+```bash
+export TYPESAFE_BASE_URL=http://localhost:11435 TYPESAFE_API_KEY=local TYPESAFE_DEFAULT_MODEL=laya   # macOS / Linux
+```
+
+```powershell
+$env:TYPESAFE_BASE_URL = 'http://localhost:11435'; $env:TYPESAFE_API_KEY = 'local'; $env:TYPESAFE_DEFAULT_MODEL = 'laya'   # Windows
+```
+
+For asyncio (e.g. a Telegram bot), use `AsyncTypeSafeClient` with `async with` / `await client.system_one(...)`.
+
+The SDK talks to `/v1/systemone`, so it doesn't expose Ollaya-only extras like routing info,
+timings, presets or `keep_alive`. For those, call `/api/decide` directly (see the `requests` example above).
 
 ---
 
