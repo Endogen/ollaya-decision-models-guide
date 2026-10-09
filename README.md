@@ -5,7 +5,12 @@ A practical guide to installing [Ollaya](https://github.com/ollaya-dev/ollaya), 
 models, and querying them from the command line and over HTTP, on **Windows, macOS and Linux**.
 
 > Tested with Ollaya **0.12.0** on Windows 11 (Intel Core Ultra 9 285HX, 64 GB RAM, NVIDIA RTX PRO
-> 4000 Blackwell 16 GB). Every command and response shape shown below was run against that install.
+> 4000 Blackwell 16 GB), with `laya:en`, `laya:multilingual`, the `laya` router and `kev` (4B).
+>
+> **What was verified:** everything on Windows (install, server, CLI, HTTP API, Python, SDK, API key,
+> GPU and CPU), plus all response examples, code samples and measurements. **Taken from Ollaya's docs, not run here:** the
+> macOS/Linux installer, Docker, systemd, `kev:0.8b`/`kev:9b`, `ollaya mcp`/`update`, and Kev's own
+> PyTorch server (appendix). Those are marked *(from docs)* where they appear.
 
 ---
 
@@ -38,7 +43,7 @@ calibrated probabilities, in milliseconds.
 |---|---|
 | **Ollaya** | A local server for decision models, "Ollama for decision models". One binary: downloads models, runs them on CPU or GPU, serves an HTTP API on port `11435`. Apache-2.0. |
 | **Laya** | Small encoder models (ModernBERT, 322M–421M parameters). Very fast, runs well on CPU. English model has a 512-token context; multilingual model covers 100+ languages. Apache-2.0. |
-| **Kev** | Larger decoder models built on Qwen3.5 (0.8B / 4B / 9B in Ollaya). More accurate, especially on questions that need world knowledge; long context (up to 65k tokens). Apache-2.0. |
+| **Kev** | Larger decoder models built on Qwen3.5 (0.8B / 4B / 9B in Ollaya). More accurate, especially on questions that need world knowledge; 8,192-token context in Ollaya (the upstream model goes up to 65k). Officially listed as English (`ollaya show kev`), but it handled German messages well in testing (section 8). Apache-2.0. |
 
 **Three question types:**
 
@@ -62,15 +67,14 @@ calibrated probabilities, in milliseconds.
 
 | Model | Download | RAM / VRAM needed (approx.) | Notes |
 |---|---|---|---|
-| `laya:en` | 853 MB | ~1.8 GB steady, ~3.1 GB peak (measured) | English, 512 tokens |
-| `laya:multilingual` | ~600 MB | ~1.5–2.5 GB | 100+ languages, 1,024 tokens by default |
-| `laya` | both of the above | sum of both if both get used | Router: picks English or multilingual per request |
-| `kev:0.8b` | smaller | ~2–3 GB | Weakest Kev, fine for experiments |
-| `kev` (= 4B) | 4.96 GB | ~6–8 GB | Default Kev |
-| `kev:9b` | larger | ~10–12 GB | Most accurate Kev that Ollaya ships |
+| `laya:en` | 853 MB | CPU: ~1.8 GB steady, ~3.1 GB peak · GPU: ~0.9 GB VRAM (measured) | English, 512 tokens |
+| `laya:multilingual` | 683 MB | similar to `laya:en` | 100+ languages, 1,024 tokens by default |
+| `laya` | both of the above (listed as `laya:latest`, 11 KB, plus the two models) | sum of both if both get used | Router: detects the language and picks English or multilingual per request |
+| `kev` (= 4B) | **9.5 GB** | CPU: **~8 GB RAM** · GPU: **~9.5 GB VRAM** (measured) | Default Kev. Ships as ONNX in full precision (F32), 8,192-token context |
+| `kev:0.8b`, `kev:9b` | not measured | estimate: roughly ¼× and 2× of `kev` | Smaller / larger Kev *(from docs, not tested)* |
 
-**Rule of thumb for a CPU-only server:** 8 GB RAM is comfortable for Laya; 16 GB if you also want Kev
-4B. CPU cores matter more than RAM for speed: plan on 4+ modern x86 cores.
+**Rule of thumb for a CPU-only server:** 8 GB RAM for Laya only; **16 GB minimum, 32 GB comfortable**
+for Kev 4B plus Laya. CPU cores matter more than RAM for speed: plan on 4+ modern x86 cores (8+ for Kev).
 
 ---
 
@@ -125,7 +129,7 @@ Use `ollaya-windows-amd64-cuda12.zip` instead if your NVIDIA driver is older tha
 Pascal/Volta cards (compute capability < 7.5).
 </details>
 
-### macOS (Apple silicon)
+### macOS (Apple silicon) *(from docs)*
 
 ```bash
 curl -fsSL https://ollaya.dev/install.sh | sh
@@ -133,7 +137,7 @@ curl -fsSL https://ollaya.dev/install.sh | sh
 
 Metal acceleration is built in; there is no separate GPU pack.
 
-### Linux
+### Linux *(from docs)*
 
 ```bash
 curl -fsSL https://ollaya.dev/install.sh | sh
@@ -141,7 +145,7 @@ curl -fsSL https://ollaya.dev/install.sh | sh
 
 To review the script first: `curl -fsSL https://ollaya.dev/install.sh -o install.sh && less install.sh && sh install.sh`.
 
-### Docker (any OS with Docker; ideal for servers)
+### Docker (any OS with Docker; ideal for servers) *(from docs)*
 
 ```bash
 # CPU only
@@ -218,7 +222,7 @@ Register-ScheduledTask -TaskName Ollaya -Action $a -Trigger $t -Settings (New-Sc
 nohup ollaya serve > ~/ollaya.log 2>&1 &
 ```
 
-**Linux as a systemd service (recommended on servers):**
+**Linux as a systemd service (recommended on servers)** *(standard systemd setup, not tested with Ollaya)*:
 
 ```bash
 sudo useradd --system --create-home --home-dir /var/lib/ollaya ollaya
@@ -257,7 +261,7 @@ curl http://localhost:11435/api/version
 ```bash
 ollaya pull laya:en            # Laya English only (853 MB), the quickest start
 ollaya pull laya               # Laya router: English + multilingual
-ollaya pull kev                # Kev 4B (4.96 GB)
+ollaya pull kev                # Kev 4B (9.5 GB)
 ollaya pull kev:0.8b           # small Kev
 ollaya pull kev:9b             # large Kev
 ```
@@ -278,7 +282,9 @@ NAME      ID             SIZE     DEVICE   PRECISION   UNTIL
 laya:en   c305a9276531   853 MB   cuda:0   F16         4 minutes from now
 ```
 
-Models load on first use (Laya: 4–15 s, Kev: longer) and unload after 5 minutes idle
+Models load on first use (measured: Laya ~3–7 s, up to ~15 s on the very first GPU load; Kev ~8–10 s,
+but ~40 s for the first load after a reboot, while its 9.5 GB file is read from disk) and unload after
+5 minutes idle
 (`OLLAYA_KEEP_ALIVE`). Pre-load one so the first real request is fast:
 
 ```bash
@@ -404,8 +410,14 @@ Base URL: `http://localhost:11435`
 | `preset` | Use a built-in or custom preset instead of `questions` |
 | `keep_alive` | e.g. `"10m"`, `"1h"`, `0` (unload now), `-1` (keep forever) |
 
-`choice.criteria` can also be a plain list: `["bullish","bearish","neutral"]`. `score.criteria`
-lists the levels, lowest first (2–10 levels). For `noul`, the statement goes in `instructions`.
+`score.criteria` lists the levels, lowest first (2–10 levels). For `noul`, the statement goes in
+`instructions`.
+
+`choice.criteria` is an object of label → description. Laya also accepts a plain list
+(`["bullish","bearish","neutral"]`), but **Kev rejects lists** with `INVALID_REQUEST`; for labels
+without descriptions use `{"bullish": null, "bearish": null, "neutral": null}`. Descriptions are worth
+writing, though: with bare labels Kev was close to a coin-flip on "SEC approves spot Ethereum ETFs"
+(bullish 49% vs. neutral 46%), and with descriptions it answered bullish at 89%.
 
 ### Response (`/api/decide`)
 
@@ -437,8 +449,9 @@ Durations are in **nanoseconds**: here 7.5 s total, of which 7.47 s was the one-
 and the end was cut off; use Kev for long inputs. `/v1/systemone` returns the same `model`,
 `answers` and `usage`, without the routing/timing fields.
 
-Notice that Laya called a $400M exchange hack "neutral" (bearish was a close second). That's the
-kind of world-knowledge question where Kev should do better. See [section 8](#8-kev-vs-laya-which-to-use-when).
+Notice that Laya called a $400M exchange hack "neutral" (bearish was a close second). Kev, given the
+same request, answered **bearish at 88%**, severity 2.34 / 3 and `is_security` 0.82. World-knowledge
+questions like this are where Kev is clearly better; see [section 8](#8-kev-vs-laya-which-to-use-when).
 
 ### curl (macOS / Linux)
 
@@ -524,7 +537,7 @@ with TypeSafeClient(base_url="http://localhost:11435", api_key="local", model="l
     print(r.answers["is_phishing"].noul)                                    # 0.6672
 
     # Override the model per call, e.g. escalate unsure cases to Kev:
-    r2 = client.system_one(state="...", questions={...}, model="kev")
+    r2 = client.system_one(state=r_state, questions=r_questions, model="kev")   # your state / questions
 ```
 
 Instead of constructor arguments you can use environment variables:
@@ -546,26 +559,42 @@ timings, presets or `keep_alive`. For those, call `/api/decide` directly (see th
 
 ## 8. Kev vs. Laya: which to use when
 
+All numbers below were measured on the test machine (24-core Intel Core Ultra 9, RTX PRO 4000 16 GB)
+unless noted. Expect CPU times to be several times slower on a small server.
+
 | | Laya (`laya:en`) | Kev (`kev`, 4B) |
 |---|---|---|
-| Speed, NVIDIA GPU | **~12 ms** per question (measured) | ~0.1–0.9 s per request (Ollaya's published figures) |
-| Speed, CPU only | **~70 ms** short message, ~0.5 s at 512 tokens (measured) | ~1.3–25 s per request (Ollaya's published figures) |
-| Memory | ~2–3 GB | ~6–8 GB |
-| Context | 512 tokens (en), 1,024+ (multilingual) | up to 65k tokens |
-| Languages | English, or 100+ with `laya`/`laya:multilingual` | Multilingual (Qwen base) |
-| Strengths | Spam, moderation, routing, triage, high volume, CPU servers | Questions needing world knowledge or reasoning, long documents, nuanced judgement |
+| Speed, NVIDIA GPU | **~12 ms** per request | **~160 ms** per request with free GPU memory; **~4.5 s** when the GPU was nearly full (see below) |
+| Speed, CPU only | **~70 ms** short message, ~0.5 s at 512 tokens | **~2.2 s** per request |
+| Model load (first request) | ~3–7 s (up to ~15 s on the very first GPU load) | ~8–10 s |
+| Memory | CPU ~2–3 GB RAM · GPU ~0.9 GB VRAM | CPU ~8 GB RAM · GPU ~9.5 GB VRAM |
+| Context | 512 tokens (en), 1,024+ (multilingual) | 8,192 tokens |
+| Strengths | English spam, moderation, routing, triage, high volume, CPU servers | World knowledge, German/other languages, nuanced judgement, longer texts |
 | Accuracy (Kev authors' held-out sets) | n/a | 4B: 0.817 / 9B: 0.820 (new sources); hosted Jev: 0.857 |
 
-**Results on a small hand-made test set** (8 Telegram messages, 6 market headlines; a sanity check,
-not a benchmark):
+**Results on a small hand-made test set** (a sanity check, not a benchmark). The English tests used
+`laya:en` and are reproducible with [`compare.py`](compare.py); the German test used the `laya` router,
+which sent three messages to `laya:multilingual` and one to `laya:en`. Accuracy was identical on GPU and CPU.
 
-| | Spam (8) | News sentiment (6) |
+| Test | Laya | Kev |
 |---|---|---|
-| `laya:en` | **8/8** | 4/6: called "SEC approves ETH ETFs" and "Tesla recalls 2M vehicles" neutral |
-| `kev` | _to be filled in_ | _to be filled in_ |
+| English Telegram spam (8) | **8/8** | **8/8**, with higher confidence on the subtle scams (96% vs. 68–70%) |
+| English market-news sentiment (6) | 4/6: called "SEC approves ETH ETFs" and "Tesla recalls 2M vehicles" neutral | **6/6** |
+| German Telegram messages (4) | 2/4: **missed both scams** (prize scam, fake crypto support); the router also sent one of them to the English model | **4/4** |
 
-**Practical pattern:** use Laya as the fast first pass on everything, and send only uncertain cases
-(e.g. top probability < 0.7) or knowledge-heavy questions to Kev.
+**Practical patterns:**
+
+- **English only, high volume or CPU server:** Laya as the first pass on everything; send only unsure cases
+  (e.g. spam probability between 0.2 and 0.8) or knowledge-heavy questions to Kev. See the recipe in section 11.
+- **German or mixed-language messages:** use Kev. In these tests the multilingual Laya wasn't reliable
+  enough for spam.
+- **Market-news sentiment:** use Kev. Laya lacks the world knowledge to know that an ETF approval is bullish.
+
+**Kev on a GPU needs headroom.** Kev 4B plus Laya used ~11.9 GB of the 16 GB card. With another GPU
+app running (LM Studio, holding 4.1 GB), the card was full: Kev's median latency rose from ~160 ms to
+~4.5 s, and Kev intermittently failed with `INFERENCE_FAILED` (see [troubleshooting](#13-troubleshooting)).
+Check `nvidia-smi` before blaming Ollaya. On **CPU, Kev ran without errors** through every test,
+including long idle periods.
 
 ---
 
@@ -578,7 +607,7 @@ Set these before `ollaya serve`:
 | `OLLAYA_HOST` | `127.0.0.1:11435` | Bind address (server) / target (CLI) |
 | `OLLAYA_MODELS` | `~/.ollaya/models` | Where models are stored |
 | `OLLAYA_KEEP_ALIVE` | `5m` | How long a model stays loaded after its last request |
-| `OLLAYA_DEVICE` | `auto` | Compute device for model runners (`auto` picks the GPU if usable) |
+| `OLLAYA_DEVICE` | `auto` | Compute device for model runners (`auto` picks the GPU if usable; `cpu` forces CPU) |
 | `OLLAYA_API_KEY` | unset | Require `Authorization: Bearer <key>` on every request |
 | `OLLAYA_THREADS` | unset | CPU threads per model |
 | `OLLAYA_MAX_LOADED_MODELS` | `3` | How many models may be loaded at once |
@@ -609,13 +638,18 @@ By default the server only listens on localhost. To reach it from other machines
 OLLAYA_HOST=0.0.0.0:11435 OLLAYA_API_KEY='change-me-long-random' ollaya serve
 ```
 
-Then every request needs the key:
+Then every request needs the key; without it (or with a wrong one) the server answers `401`. Only
+`GET /` stays open, so health checks work without a key.
 
 ```bash
 curl -s http://SERVER:11435/api/decide -H "Authorization: Bearer change-me-long-random" -H "Content-Type: application/json" -d '{...}'
 ```
 
-The CLI and SDKs send `OLLAYA_API_KEY` automatically when it's set in their environment.
+The `ollaya` CLI sends `OLLAYA_API_KEY` automatically when it's set in its environment. That
+includes `ollaya stop`: without the key it can't stop a protected server
+(`OLLAYA_API_KEY=... ollaya stop`). The
+`typesafe-sdk` client does **not** read `OLLAYA_API_KEY`: pass the key as `api_key=` or set
+`TYPESAFE_API_KEY` to the same value.
 
 Recommendations:
 
@@ -641,18 +675,25 @@ SPAM_Q = {
     "is_phishing": {"type": "noul", "instructions": "The message tries to obtain passwords, seed phrases or money."},
 }
 
+def decide(model, text):
+    r = requests.post("http://localhost:11435/api/decide",
+                      json={"model": model, "state": text, "questions": SPAM_Q}, timeout=120)
+    r.raise_for_status()
+    return r.json()
+
 def is_spam(text, threshold=0.8):
-    a = requests.post("http://localhost:11435/api/decide",
-                      json={"model": "laya", "state": text, "questions": SPAM_Q}).json()["answers"]
-    p_spam = a["verdict"]["probabilities"]["spam"]
-    if 0.3 < p_spam < threshold:  # unsure: ask the bigger model
-        a = requests.post("http://localhost:11435/api/decide",
-                          json={"model": "kev", "state": text, "questions": SPAM_Q}).json()["answers"]
-        p_spam = a["verdict"]["probabilities"]["spam"]
-    return p_spam >= threshold or a["is_phishing"]["noul"] >= 0.9, p_spam
+    d = decide("laya", text)                      # fast first pass; the router detects the language
+    p_spam = d["answers"]["verdict"]["probabilities"]["spam"]
+    english = d["model"] == "laya:en"
+    if not english or 0.2 < p_spam < threshold:   # non-English or unsure: ask Kev
+        d = decide("kev", text)
+        p_spam = d["answers"]["verdict"]["probabilities"]["spam"]
+    return p_spam >= threshold or d["answers"]["is_phishing"]["noul"] >= 0.9, p_spam
 ```
 
-Using `laya` (the router) instead of `laya:en` handles German and other languages automatically.
+Non-English messages always go to Kev, because in testing the multilingual Laya missed German scams.
+The router also once classified a German message as English, so **if your chats are mostly German,
+skip Laya and send everything to Kev** (~160 ms on a GPU, ~2 s on a fast CPU).
 
 ### Trading news sentiment
 
@@ -693,11 +734,14 @@ ollaya ps                 # what's loaded, on which device
 ollaya stop kev           # unload one model
 ollaya stop               # stop the server (unloads everything)
 ollaya rm kev:0.8b        # delete a downloaded model
-ollaya update --check     # is there a newer Ollaya?
-ollaya update             # install it
-ollaya preset list        # presets; `ollaya preset create` for your own
-ollaya mcp                # expose models to AI agents (e.g. Claude) over MCP
+ollaya preset list        # built-in and custom presets
+ollaya update --check     # is there a newer Ollaya?          (from docs)
+ollaya update             # install it                          (from docs)
+ollaya mcp                # expose models to AI agents (e.g. Claude) over MCP, stdio (from docs)
+ollaya mcp --http         # same over HTTP at 127.0.0.1:11436/mcp                    (from docs)
 ```
+
+See `ollaya <command> --help` for all options, e.g. `ollaya preset create --help` for your own presets.
 
 **Uninstall**
 
@@ -716,18 +760,57 @@ ollaya mcp                # expose models to AI agents (e.g. Claude) over MCP
 | `could not connect to a running Ollaya instance` | Start the server: `ollaya serve` |
 | Downloads crawl or drop (corporate VPN/proxy) | `ollaya pull` resumes: re-run it, or loop: `until ollaya pull kev; do sleep 5; done`. For the Windows GPU pack use the manual install with `curl -C -`. Fastest fix: download off-VPN |
 | `ollaya ps` shows `cpu` despite an NVIDIA GPU | The CUDA pack is missing: check for `%LOCALAPPDATA%\Programs\Ollaya\lib\ollaya\cuda_v13` (Windows), re-run the installer, then restart `ollaya serve`. Check `nvidia-smi` works |
-| First request takes seconds | That's the model loading (Laya ~4–15 s, Kev longer). Pre-load with `keep_alive` (section 5) or raise `OLLAYA_KEEP_ALIVE` |
-| `state_truncated: true` | Input exceeded the model's context (Laya English: 512 tokens). Use `laya:multilingual` (1,024), Kev (65k), or split the text |
+| First request takes seconds | That's the model loading (Laya ~3–15 s, Kev ~8–10 s). Pre-load with `keep_alive` (section 5) or raise `OLLAYA_KEEP_ALIVE` |
+| `state_truncated: true` | Input exceeded the model's context (Laya English: 512 tokens). Use `laya:multilingual` (1,024), Kev (8,192), or split the text |
+| Kev on GPU fails with `INFERENCE_FAILED` … `running Scan node` … `UpdateWithParentStream` | See [below](#kev-fails-on-the-gpu-with-inference_failed) |
+| Kev on GPU takes seconds instead of ~160 ms | GPU memory is nearly full, so Windows spills to system RAM. Check `nvidia-smi`; close other GPU apps (e.g. LM Studio), or unload Laya |
 | Inline `--questions '{...}'` fails on Windows | PowerShell strips the quotes; put the questions in a file |
 | Out of memory with several models | Lower `OLLAYA_MAX_LOADED_MODELS`, or unload with `ollaya stop <model>` |
 | Linux binary won't start (`GLIBC_2.38 not found`) | The distro is too old: use Ubuntu 24.04+ / Debian 13+, or the Docker image |
 | Overconfident probabilities | Laya's checkpoints are known to be overconfident as shipped; tune your thresholds on your own labelled examples |
+| `INVALID_REQUEST` … `takes choice criteria as an object` | Kev doesn't accept a list of labels; use `{"label": "description"}` or `{"label": null}` (section 7) |
+| `401` / `missing or invalid API key` | The server has `OLLAYA_API_KEY` set: send `Authorization: Bearer <key>`, set `OLLAYA_API_KEY` for the CLI, or pass `api_key=` to the SDK |
+
+### Kev fails on the GPU with `INFERENCE_FAILED`
+
+Observed with Ollaya 0.12.0, Kev 4B on CUDA (RTX PRO 4000, 16 GB, Windows):
+
+```
+onnx runtime: Non-zero status code returned while running Scan node. Name:'node_scan__1' ...
+UpdateWithParentStream Subgraph has nodes running on device: ... this is not supported yet.
+```
+
+- **What happens:** Kev works after loading, then at some point every Kev request fails until Kev is
+  reloaded. Laya keeps working. In testing it typically happened 30 s to 2 min after loading, but not
+  every time (one run stayed healthy). Regular requests did not prevent it.
+- **Likely cause:** GPU memory pressure. In the failing runs the 16 GB card was full (another app held
+  4.1 GB). This wasn't fully isolated, though.
+- **Not affected:** Kev on CPU (`OLLAYA_DEVICE=cpu`) ran error-free in every test.
+- **Fixes:**
+  1. Free GPU memory (check `nvidia-smi`, close other GPU apps), or run Kev on CPU.
+  2. Recover with `ollaya stop kev`; it reloads (~9 s) on the next request.
+  3. In code, unload and retry automatically:
+
+```python
+import requests
+URL = "http://localhost:11435/api/decide"
+
+def decide(model, state, questions, retries=1):
+    for attempt in range(retries + 1):
+        r = requests.post(URL, json={"model": model, "state": state, "questions": questions}, timeout=300)
+        if r.status_code == 200:
+            return r.json()
+        if attempt < retries and r.json().get("code") == "INFERENCE_FAILED":
+            requests.post(URL, json={"model": model, "keep_alive": 0}, timeout=60)  # unload; next call reloads
+            continue
+        r.raise_for_status()
+```
 
 ---
 
 ## 14. Appendix: Kev's own server
 
-Kev also ships its own PyTorch server, useful for `kev-27b` (not in Ollaya) or for fine-tuning work.
+*(From Kev's README, not tested here.)* Kev also ships its own PyTorch server, useful for `kev-27b` (not in Ollaya) or for fine-tuning work.
 It needs **CUDA/ROCm or Apple-silicon MLX**: there's no CPU path. In bf16, 4B and 9B need ~17 GB VRAM
 and 27B needs an 80 GB GPU.
 
@@ -738,7 +821,8 @@ uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
 # POST http://localhost:8009/v1/systemone  (same request format as above)
 ```
 
-For a 16 GB GPU or a CPU server, Ollaya's GGUF builds of Kev are the practical route.
+For a 16 GB GPU or a CPU server, Ollaya is the practical route: its Kev 4B ran in ~9.5 GB VRAM on the
+test GPU and ~8 GB RAM on CPU.
 
 ---
 
