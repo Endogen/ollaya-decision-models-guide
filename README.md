@@ -4,13 +4,13 @@ A practical guide to installing [Ollaya](https://github.com/ollaya-dev/ollaya), 
 [Kev](https://github.com/jaredpalmer/kev) and [Laya](https://github.com/NandhaKishorM/laya) decision
 models, and querying them from the command line and over HTTP, on **Windows, macOS and Linux**.
 
-> Tested with Ollaya **0.12.0** on Windows 11 (Intel Core Ultra 9 285HX, 64 GB RAM, NVIDIA RTX PRO
+> Tested with Ollaya **0.13.0** on Windows 11 (Intel Core Ultra 9 285HX, 64 GB RAM, NVIDIA RTX PRO
 > 4000 Blackwell 16 GB), with `laya:en`, `laya:multilingual`, the `laya` router and `kev` (4B).
 >
-> **What was verified:** everything on Windows (install, server, CLI, HTTP API, Python, SDK, API key,
-> GPU and CPU), plus all response examples, code samples and measurements. **Taken from Ollaya's docs, not run here:** the
-> macOS/Linux installer, Docker, systemd, `kev:0.8b`/`kev:9b`, `ollaya mcp`/`update`, and Kev's own
-> PyTorch server (appendix). Those are marked *(from docs)* where they appear.
+> **What was verified:** everything on Windows (install, update, server, CLI, HTTP API, Python, SDK,
+> API key, GPU and CPU), plus all response examples, code samples and measurements. **Taken from
+> Ollaya's docs, not run here:** the macOS/Linux installer, Docker, systemd, `kev:0.8b`/`kev:9b`,
+> `ollaya mcp`, and Kev's own PyTorch server (appendix). Those are marked *(from docs)* where they appear.
 
 ---
 
@@ -191,7 +191,7 @@ ollaya serve
 Leave that terminal open. You should see:
 
 ```
-INFO ollaya_server::http: Ollaya is running address=127.0.0.1:11435, [::1]:11435 version="0.12.0" models=...\.ollaya\models
+INFO ollaya_server::http: Ollaya is running address=127.0.0.1:11435, [::1]:11435 version="0.13.0" models=...\.ollaya\models
 ```
 
 Stop it with `Ctrl+C`, or from another terminal with:
@@ -590,14 +590,9 @@ which sent three messages to `laya:multilingual` and one to `laya:en`. Accuracy 
   enough for spam.
 - **Market-news sentiment:** use Kev. Laya lacks the world knowledge to know that an ETF approval is bullish.
 
-**Two GPU caveats for Kev:**
-
-- **It needs memory headroom.** Kev 4B plus Laya used ~11.9 GB of the 16 GB card. With another GPU app
-  running (LM Studio, holding 4.1 GB; note that it keeps running in the system tray after you close its
-  window), the card was full and Kev's median latency rose from ~160 ms to ~4.5 s. Check `nvidia-smi`.
-- **On the tested laptop GPU, Kev breaks after pauses of ~15 s or more** between requests, until it's
-  reloaded. See [troubleshooting](#kev-fails-on-the-gpu-with-inference_failed) for details and fixes.
-  On **CPU, Kev ran without errors** through every test, including long idle periods.
+**Kev on a GPU needs memory headroom.** Kev 4B plus Laya used ~11.9 GB of the 16 GB card. With another
+GPU app running (LM Studio, holding 4.1 GB; note that it keeps running in the system tray after you close
+its window), the card was full and Kev's median latency rose from ~160 ms to ~4.5 s. Check `nvidia-smi`.
 
 ---
 
@@ -694,10 +689,6 @@ def is_spam(text, threshold=0.8):
     return p_spam >= threshold or d["answers"]["is_phishing"]["noul"] >= 0.9, p_spam
 ```
 
-If Kev runs on a laptop GPU, swap this `decide()` for the unload-and-retry version in
-[troubleshooting](#kev-fails-on-the-gpu-with-inference_failed); Telegram traffic has exactly the kind
-of pauses that trigger that issue. On CPU this isn't needed.
-
 Non-English messages always go to Kev, because in testing the multilingual Laya missed German scams.
 The router also once classified a German message as English, so **if your chats are mostly German,
 skip Laya and send everything to Kev** (~160 ms on a GPU, ~2 s on a fast CPU).
@@ -742,10 +733,10 @@ ollaya stop kev           # unload one model
 ollaya stop               # stop the server (unloads everything)
 ollaya rm kev:0.8b        # delete a downloaded model
 ollaya preset list        # built-in and custom presets
-ollaya update --check     # is there a newer Ollaya?          (from docs)
-ollaya update             # install it                          (from docs)
-ollaya mcp                # expose models to AI agents (e.g. Claude) over MCP, stdio (from docs)
-ollaya mcp --http         # same over HTTP at 127.0.0.1:11436/mcp                    (from docs)
+ollaya update --check     # is there a newer Ollaya?
+ollaya update             # install it (keeps the GPU pack if it hasn't changed)
+ollaya mcp                # expose models to AI agents (e.g. Claude) over MCP, stdio   (from docs)
+ollaya mcp --http         # same over HTTP at 127.0.0.1:11436/mcp                      (from docs)
 ```
 
 See `ollaya <command> --help` for all options, e.g. `ollaya preset create --help` for your own presets.
@@ -769,7 +760,6 @@ See `ollaya <command> --help` for all options, e.g. `ollaya preset create --help
 | `ollaya ps` shows `cpu` despite an NVIDIA GPU | The CUDA pack is missing: check for `%LOCALAPPDATA%\Programs\Ollaya\lib\ollaya\cuda_v13` (Windows), re-run the installer, then restart `ollaya serve`. Check `nvidia-smi` works |
 | First request takes seconds | That's the model loading (Laya ~3–15 s, Kev ~8–10 s). Pre-load with `keep_alive` (section 5) or raise `OLLAYA_KEEP_ALIVE` |
 | `state_truncated: true` | Input exceeded the model's context (Laya English: 512 tokens). Use `laya:multilingual` (1,024), Kev (8,192), or split the text |
-| Kev on GPU fails with `INFERENCE_FAILED` … `running Scan node` … `UpdateWithParentStream` | See [below](#kev-fails-on-the-gpu-with-inference_failed) |
 | Kev on GPU takes seconds instead of ~160 ms | GPU memory is nearly full, so Windows spills to system RAM. Check `nvidia-smi`; quit other GPU apps (e.g. LM Studio, which keeps a model loaded from the system tray after you close its window), or unload Laya |
 | Inline `--questions '{...}'` fails on Windows | PowerShell strips the quotes; put the questions in a file |
 | Out of memory with several models | Lower `OLLAYA_MAX_LOADED_MODELS`, or unload with `ollaya stop <model>` |
@@ -777,57 +767,6 @@ See `ollaya <command> --help` for all options, e.g. `ollaya preset create --help
 | Overconfident probabilities | Laya's checkpoints are known to be overconfident as shipped; tune your thresholds on your own labelled examples |
 | `INVALID_REQUEST` … `takes choice criteria as an object` | Kev doesn't accept a list of labels; use `{"label": "description"}` or `{"label": null}` (section 7) |
 | `401` / `missing or invalid API key` | The server has `OLLAYA_API_KEY` set: send `Authorization: Bearer <key>`, set `OLLAYA_API_KEY` for the CLI, or pass `api_key=` to the SDK |
-
-### Kev fails on the GPU with `INFERENCE_FAILED`
-
-Observed with Ollaya 0.12.0, Kev 4B on CUDA (RTX PRO 4000, 16 GB, Windows):
-
-```
-onnx runtime: Non-zero status code returned while running Scan node. Name:'node_scan__1' ...
-UpdateWithParentStream Subgraph has nodes running on device: ... this is not supported yet.
-```
-
-- **What happens:** Kev works after loading, but after a **pause of roughly 15 s or more between Kev
-  requests**, the next request fails, and every later one too, until Kev is reloaded. Laya keeps working.
-- **What the tests showed:**
-
-  | Pattern | Result |
-  |---|---|
-  | Kev requests back-to-back or every 2 s (59 requests over 3 min) | always OK |
-  | Kev every 15–20 s | failed within 16–45 s in every run |
-  | A tiny Laya request every 5 s to keep the GPU busy, Kev every 30–60 s | mostly OK, but still failed once |
-  | Kev alone on a completely free GPU (10.5 of 16 GB used) | still fails, so it's **not** GPU memory |
-  | Kev on CPU (`OLLAYA_DEVICE=cpu`), any pattern including minutes of idle | always OK |
-
-- **Likely cause:** each failure coincided with the laptop GPU having dropped into its deepest idle
-  power state (P8 in `nvidia-smi --query-gpu=pstate --format=csv`). It looks like an ONNX Runtime /
-  CUDA issue when the GPU wakes up. Seen on a Blackwell laptop GPU (compute capability 12.0, driver
-  595.71); desktop and server GPUs may behave differently, but that wasn't tested.
-- **Fixes, best first:**
-  1. **Run Kev on CPU** if ~2 s per request is acceptable: `OLLAYA_DEVICE=cpu ollaya serve`. It's fully
-     reliable, and on a CPU-only server this issue doesn't apply at all.
-  2. **Unload and retry in your code** (below). After a pause, that request costs a ~9 s reload, then it's
-     fast again while traffic is steady.
-  3. Recover by hand with `ollaya stop kev`; Kev reloads on the next request.
-  4. *Untested:* NVIDIA Control Panel → Manage 3D settings → Power management mode → "Prefer maximum
-     performance" might keep the GPU out of P8.
-
-Unload-and-retry:
-
-```python
-import requests
-URL = "http://localhost:11435/api/decide"
-
-def decide(model, state, questions, retries=1):
-    for attempt in range(retries + 1):
-        r = requests.post(URL, json={"model": model, "state": state, "questions": questions}, timeout=300)
-        if r.status_code == 200:
-            return r.json()
-        if attempt < retries and r.json().get("code") == "INFERENCE_FAILED":
-            requests.post(URL, json={"model": model, "keep_alive": 0}, timeout=60)  # unload; next call reloads
-            continue
-        r.raise_for_status()
-```
 
 ---
 
